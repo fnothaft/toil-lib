@@ -27,8 +27,8 @@ _SPARK_MASTER_PORT = "7077"
 
 def spawn_spark_cluster(job,
                         numWorkers,
-                        sparkMasterContainer="quay.io/ucsc_cgl/apache-spark-master:1.5.2--48deeade1feb86064e9a7c091aa61425c80eb1bc",
-                        sparkWorkerContainer="quay.io/ucsc_cgl/apache-spark-worker:1.5.2--48deeade1feb86064e9a7c091aa61425c80eb1bc",
+                        sparkMasterContainer="quay.io/ucsc_cgl/apache-spark-master:1.5.2",
+                        sparkWorkerContainer="quay.io/ucsc_cgl/apache-spark-worker:1.5.2",
                         cores=None,
                         memory=None,
                         disk=None,
@@ -55,13 +55,15 @@ def spawn_spark_cluster(job,
     if numWorkers < 1:
         raise ValueError("Must have more than one worker. %d given." % numWorkers)
 
-    leaderService = SparkService(cores=cores,
+    leaderService = SparkService(sparkMasterContainer,
+                                 cores=cores,
                                  memory=memory,
                                  disk=disk,
                                  overrideLeaderIP=overrideLeaderIP)
     leaderIP = job.addService(leaderService)
     for i in range(numWorkers):
         job.addService(WorkerService(leaderIP,
+                                     sparkWorkerContainer,
                                      cores=cores,
                                      disk=disk,
                                      memory=memory),
@@ -126,6 +128,7 @@ class SparkService(Job.Service):
             cores = multiprocessing.cpu_count()
 
         self.hostname = overrideLeaderIP
+        self.sparkContainer = sparkContainer
 
         Job.Service.__init__(self, memory=memory, cores=cores, disk=disk)
 
@@ -144,7 +147,7 @@ class SparkService(Job.Service):
         self.sparkContainerID = dockerCheckOutput(job=job,
                                                   defer=STOP,
                                                   workDir=os.getcwd(),
-                                                  tool=sparkContainer,
+                                                  tool=self.sparkContainer,
                                                   dockerParameters=["--net=host",
                                                                     "-d",
                                                                     "-v", "/var/run/docker.sock:/var/run/docker.sock",
@@ -215,6 +218,7 @@ class WorkerService(Job.Service):
         """
 
         self.masterIP = masterIP
+        self.sparkContainer = sparkContainer
 
         if cores is None:
             cores = multiprocessing.cpu_count()
@@ -233,7 +237,7 @@ class WorkerService(Job.Service):
         self.sparkContainerID = dockerCheckOutput(job=job,
                                                   defer=STOP,
                                                   workDir=os.getcwd(),
-                                                  tool=sparkContainer,
+                                                  tool=self.sparkContainer,
                                                   dockerParameters=["--net=host",
                                                                     "-d",
                                                                     "-v", "/var/run/docker.sock:/var/run/docker.sock",
