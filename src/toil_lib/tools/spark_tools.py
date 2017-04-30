@@ -77,8 +77,8 @@ def _make_parameters(master_ip, default_parameters, memory, arguments, override_
     parameters = []
     if memory is not None:
         parameters = ["--master", "spark://%s:%s" % (master_ip, SPARK_MASTER_PORT),
-                      "--conf", "spark.driver.memory=%sg" % memory,
-                      "--conf", "spark.executor.memory=%sg" % memory,
+                      "--conf", "spark.driver.memory=%s" % memory,
+                      "--conf", "spark.executor.memory=%s" % memory,
                       "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT))]
     else:
         parameters.extend(override_parameters)
@@ -123,7 +123,7 @@ def call_conductor(job,
 
     arguments = ["-C", src, dst]
 
-    docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+    docker_parameters = ['--log-driver', 'none', '--net=host']
     dockerCall(job=job,
                 tool=container,
                 parameters=_make_parameters(master_ip,
@@ -187,7 +187,7 @@ def call_adam(job, master_ip, arguments,
 
     # are we running adam via docker, or do we have a native path?
     if native_adam_path is None:
-        docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+        docker_parameters = ['--log-driver', 'none', '--net=host']
         dockerCall(job=job,
                     tool=container,
                     dockerParameters=docker_parameters,
@@ -239,7 +239,7 @@ def call_avocado(job, master_ip, arguments,
             "--conf", "spark.kryoserializer.buffer.max=2047m"
             ])
 
-    docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+    docker_parameters = ['--log-driver', 'none', '--net=host']
     dockerCall(job=job,
                tool=container,
                dockerParameters=docker_parameters,
@@ -281,7 +281,7 @@ def call_cannoli(job, master_ip, arguments,
                   ("spark://%s:%s" % (master_ip, SPARK_MASTER_PORT)),
                   "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT)),]
 
-    docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+    docker_parameters = ['--log-driver', 'none', '--net=host']
     dockerCall(job=job,
                tool=container,
                dockerParameters=docker_parameters,
