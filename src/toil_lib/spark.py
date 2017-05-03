@@ -151,10 +151,10 @@ class SparkService(Job.Service):
                                                   dockerParameters=["--net=host",
                                                                     "-d",
                                                                     "-v", "/var/run/docker.sock:/var/run/docker.sock",
-                                                                    "-v", "/mnt/ephemeral/:/ephemeral/:rw",
+                                                                    "-v", "/mnt/ephemeral/:/mnt/ephemeral/:rw",
                                                                     "-e", "SPARK_MASTER_IP=" + self.hostname,
-                                                                    "-e", "SPARK_LOCAL_DIRS=/ephemeral/spark/local",
-                                                                    "-e", "SPARK_WORKER_DIR=/ephemeral/spark/work"],
+                                                                    "-e", "SPARK_LOCAL_DIRS=/mnt/ephemeral/spark/local",
+                                                                    "-e", "SPARK_WORKER_DIR=/mnt/ephemeral/spark/work"],
                                                   parameters=[self.hostname])[:-1]
         _log.info("Started HDFS Datanode.")
         self.hdfsContainerID = dockerCheckOutput(job=job,
@@ -174,7 +174,7 @@ class SparkService(Job.Service):
         :param job: The underlying job.
         """
 
-        subprocess.call(["docker", "exec", self.sparkContainerID, "rm", "-r", "/ephemeral/spark"])
+        subprocess.call(["docker", "exec", self.sparkContainerID, "rm", "-r", "/mnt/ephemeral/spark"])
         subprocess.call(["docker", "stop", self.sparkContainerID])
         subprocess.call(["docker", "rm", self.sparkContainerID])
         _log.info("Stopped Spark master.")
@@ -241,11 +241,11 @@ class WorkerService(Job.Service):
                                                   dockerParameters=["--net=host",
                                                                     "-d",
                                                                     "-v", "/var/run/docker.sock:/var/run/docker.sock",
-                                                                    "-v", "/mnt/ephemeral/:/ephemeral/:rw",
+                                                                    "-v", "/mnt/ephemeral/:/mnt/ephemeral/:rw",
                                                                     "-e",
                                                                     "\"SPARK_MASTER_IP=" + self.masterIP + ":" + _SPARK_MASTER_PORT + "\"",
-                                                                    "-e", "SPARK_LOCAL_DIRS=/ephemeral/spark/local",
-                                                                    "-e", "SPARK_WORKER_DIR=/ephemeral/spark/work"],
+                                                                    "-e", "SPARK_LOCAL_DIRS=/mnt/ephemeral/spark/local",
+                                                                    "-e", "SPARK_WORKER_DIR=/mnt/ephemeral/spark/work"],
                                                   parameters=[self.masterIP + ":" + _SPARK_MASTER_PORT])[:-1]
         self.__start_datanode(job)
         
@@ -323,7 +323,7 @@ class WorkerService(Job.Service):
         :param job: The underlying job.
         """
 
-        subprocess.call(["docker", "exec", self.sparkContainerID, "rm", "-r", "/ephemeral/spark"])
+        subprocess.call(["docker", "exec", self.sparkContainerID, "rm", "-r", "/mnt/ephemeral/spark"])
         subprocess.call(["docker", "stop", self.sparkContainerID])
         subprocess.call(["docker", "rm", self.sparkContainerID])
         _log.info("Stopped Spark worker.")
