@@ -279,6 +279,7 @@ def call_cannoli(job, master_ip, arguments,
     else:
         master = ["--master",
                   ("spark://%s:%s" % (master_ip, SPARK_MASTER_PORT)),
+                  "--jars", "/opt/cgl-docker-lib/cannoli/target/cannoli-spark2_2.11-0.1-SNAPSHOT.jar",
                   "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT)),]
 
     docker_parameters = ['--log-driver', 'none', '--net=host']
