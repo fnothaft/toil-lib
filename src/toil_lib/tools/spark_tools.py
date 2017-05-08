@@ -8,6 +8,7 @@ ADAM/Spark pipeline
 
 import os.path
 from subprocess import check_call
+import time
 
 from toil.lib.docker import dockerCall
 
@@ -93,7 +94,40 @@ def _make_parameters(master_ip, default_parameters, memory, arguments, override_
     parameters.extend(arguments)
 
     return parameters        
-    
+
+
+def _format_time(start_time, end_time):
+    """
+    Formats an elapsed runtime as %dh%dm%ds.
+
+    :param float start_time: The starting time of the interval in seconds.
+    :param float end_time: The ending time of the interval in seconds.
+    :return str: String represnting the runtime in hours, minutes, and seconds.
+    """
+
+    elapsed_time = end_time - start_time
+    elapsed_hours = int(elapsed_time / 3600.0)
+    elapsed_minutes = int((elapsed_time - float(elapsed_hours * 3600.0)) / 60.0)
+    elapsed_seconds = int((elapsed_time - float(elapsed_hours * 3600.0 + elapsed_minutes * 60.0)))
+
+    return ("%dh %dm %ds" % (elapsed_hours, elapsed_minutes, elapsed_hours))
+
+
+def _log_container_execution(job, container, start_time, end_time, parameters):
+    """
+    Logs the runtime and arguments passed to a container back to the toil leader.
+
+    :param toil.job.Job job: The toil job being run, used to access the filestore.
+    :param str container: The name of the container being run.
+    :param float start_time: The starting time of the interval in seconds.
+    :param float end_time: The ending time of the interval in seconds.
+    :param list[str] parameters: The command line parameters passed to the container.
+    """
+
+    runtime_string = _format_time(start_time, end_time)
+    job.fileStore.logToMaster("Container %s ran in %s with parameters %r." % (container,
+                                                                              runtime_string,
+                                                                              parameters))
 
 def call_conductor(job,
                    master_ip,
@@ -124,14 +158,20 @@ def call_conductor(job,
     arguments = ["-C", src, dst]
 
     docker_parameters = ['--log-driver', 'none', '--net=host']
+    parameters = _make_parameters(master_ip,
+                                  [], # no conductor specific spark configuration
+                                  memory,
+                                  arguments,
+                                  override_parameters)
+
+    start_time = time.time()
     dockerCall(job=job,
-                tool=container,
-                parameters=_make_parameters(master_ip,
-                                            [], # no conductor specific spark configuration
-                                            memory,
-                                            arguments,
-                                            override_parameters),
+               tool=container,
+               parameters=parameters,
                dockerParameters=docker_parameters)
+    end_time = time.time()
+
+    _log_container_execution(job, container, start_time, end_time, parameters)
 
 
 def call_adam(job, master_ip, arguments,
@@ -188,14 +228,21 @@ def call_adam(job, master_ip, arguments,
     # are we running adam via docker, or do we have a native path?
     if native_adam_path is None:
         docker_parameters = ['--log-driver', 'none', '--net=host']
-        dockerCall(job=job,
-                    tool=container,
-                    dockerParameters=docker_parameters,
-                    parameters=_make_parameters(master_ip,
+        parameters = _make_parameters(master_ip,
                                                 default_params,
                                                 memory,
                                                 arguments,
-                                                override_parameters))
+                                                override_parameters)
+
+        start_time = time.time()
+        dockerCall(job=job,
+                   tool=container,
+                   dockerParameters=docker_parameters,
+                   parameters=parameters)
+        end_time = time.time()
+
+        _log_container_execution(job, container, start_time, end_time, parameters)
+
     else:
         check_call([os.path.join(native_adam_path, "bin/adam-submit")] +
                    default_params +
@@ -240,14 +287,20 @@ def call_avocado(job, master_ip, arguments,
             ])
 
     docker_parameters = ['--log-driver', 'none', '--net=host']
+    parameters = _make_parameters(master_ip,
+                                  default_params,
+                                  memory,
+                                  arguments,
+                                  override_parameters)
+
+    start_time = time.time()
     dockerCall(job=job,
                tool=container,
                dockerParameters=docker_parameters,
-               parameters=_make_parameters(master_ip,
-                                           default_params,
-                                           memory,
-                                           arguments,
-                                           override_parameters))
+               parameters=parameters)
+    end_time = time.time()
+
+    _log_container_execution(job, container, start_time, end_time, parameters)
 
 
 def call_cannoli(job, master_ip, arguments,
@@ -283,12 +336,17 @@ def call_cannoli(job, master_ip, arguments,
                   "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT)),]
 
     docker_parameters = ['--log-driver', 'none', '--net=host']
+    parameters = _make_parameters(master_ip,
+                                  master,
+                                  memory,
+                                  arguments,
+                                  override_parameters)
+
+    start_time = time.time()
     dockerCall(job=job,
                tool=container,
                dockerParameters=docker_parameters,
-               parameters=_make_parameters(master_ip,
-                                           master,
-                                           memory,
-                                           arguments,
-                                           override_parameters))
+               parameters=parameters)
+    end_time = time.time()
 
+    _log_container_execution(job, container, start_time, end_time, parameters)
