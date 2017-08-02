@@ -1,4 +1,5 @@
 import os
+import time
 
 from toil.job import PromisedRequirement
 from toil.lib.docker import dockerCall
@@ -84,6 +85,17 @@ def run_samtools_index(job, bam):
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'sample.bam.bai'))
 
 
+def _log_runtime(job, start, end, cmd):
+
+    elapsed_time = end - start
+    
+    seconds = int(elapsed_time) % 60
+    minutes = int(elapsed_time) / 60
+    hours = int(elapsed_time) / (60 * 60)
+
+    job.fileStore.logToMaster("%s ran in %dh%dm%ds" % (cmd, hours, minutes, seconds))
+
+
 def run_samtools_sort(job, bam):
     """
     Sorts BAM file using SAMtools sort
@@ -99,9 +111,13 @@ def run_samtools_sort(job, bam):
                '-@', str(job.cores),
                '-o', '/data/output.bam',
                '/data/input.bam']
+
+    start_time = time.time()
     dockerCall(job=job, workDir=work_dir,
                parameters=command,
                tool='quay.io/ucsc_cgl/samtools:1.3--256539928ea162949d8a65ca5c79a72ef557ce7c')
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "samtools sort")
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bam'))
 
 
@@ -152,12 +168,18 @@ def picard_mark_duplicates(job, bam, bai, validation_stringency='LENIENT'):
 
     # picard-tools container doesn't have JAVA_OPTS variable
     # Set TMPDIR to /data to prevent writing temporary files to /tmp
-    docker_parameters = ['--rm', 'log-driver', 'none',
-                         '-e', 'JAVA_OPTIONS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory)]
+    docker_parameters = ['--rm',
+                         '--log-driver', 'none',
+                         '-e', 'JAVA_OPTIONS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
+                         '-v', '{}:/data'.format(work_dir)]
+
+    start_time = time.time()
     dockerCall(job=job, workDir=work_dir,
                parameters=command,
                tool='quay.io/ucsc_cgl/picardtools:1.95--dd5ac549b95eb3e5d166a5e310417ef13651994e',
                dockerParameters=docker_parameters)
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "Picard MarkDuplicates")
 
     bam = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'mkdups.bam'))
     bai = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'mkdups.bai'))
@@ -333,6 +355,7 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- RealignerTargetCreator
+    start_time = time.time()
     parameters = ['-T', 'RealignerTargetCreator',
                   '-R', '/data/ref.fasta',
                   '-I', '/data/input.bam',
@@ -342,16 +365,26 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
                   '-known', '/data/mills.vcf',
                   '--downsampling_type', 'NONE',
                   '-o', '/data/sample.intervals']
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 RealignerTargetCreator")
+
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
 
     # Set TMPDIR to /data to prevent writing temporary files to /tmp
-    docker_parameters = ['--rm', 'log-driver', 'none',
-                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory)]
+    docker_parameters = ['--rm',
+                         '--log-driver', 'none',
+                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
+                         '-v', '{}:/data'.format(work_dir)]
+
+    end_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
                dockerParameters=docker_parameters)
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "picard markduplicates")
+
     # Write to fileStore
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'sample.intervals'))
 
@@ -404,12 +437,17 @@ def run_indel_realignment(job, intervals, bam, bai, ref, ref_dict, fai, g1k, mil
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
 
     # Set TMPDIR to /data to prevent writing temporary files to /tmp
-    docker_parameters = ['--rm', 'log-driver', 'none',
-                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory)]
+    docker_parameters = ['--rm',
+                         '--log-driver', 'none',
+                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
+                         '-v', '{}:/data'.format(work_dir)]
+    start_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
                dockerParameters=docker_parameters)
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 IndelRealigner")
 
     indel_bam = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bam'))
     indel_bai = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bai'))
@@ -445,6 +483,7 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills, unsa
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- BaseRecalibrator
+    start_time = time.time()
     parameters = ['-T', 'BaseRecalibrator',
                   '-nct', str(job.cores),
                   '-R', '/data/ref.fasta',
@@ -454,13 +493,17 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills, unsa
                   '-knownSites', '/data/dbsnp.vcf',
                   '-knownSites', '/data/mills.vcf',
                   '-o', '/data/recal_data.table']
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 BaseRecalibrator")
 
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
 
     # Set TMPDIR to /data to prevent writing temporary files to /tmp
-    docker_parameters = ['--rm', 'log-driver', 'none',
-                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory)]
+    docker_parameters = ['--rm',
+                         '--log-driver', 'none',
+                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
+                         '-v', '{}:/data'.format(work_dir)]
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
@@ -496,18 +539,24 @@ def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai, unsafe=Fa
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- PrintReads
+    start_time = time.time()
     parameters = ['-T', 'PrintReads',
                   '-nct', str(job.cores),
                   '-R', '/data/ref.fasta',
                   '-I', '/data/input.bam',
                   '-BQSR', '/data/recal.table',
                   '-o', '/data/bqsr.bam']
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 BQSR PrintReads")
+    
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
 
     # Set TMPDIR to /data to prevent writing temporary files to /tmp
-    docker_parameters = ['--rm', 'log-driver', 'none',
-                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory)]
+    docker_parameters = ['--rm',
+                         '--log-driver', 'none',
+                         '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
+                         '-v', '{}:/data'.format(work_dir)]
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
