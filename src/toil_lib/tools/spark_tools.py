@@ -51,7 +51,12 @@ class MasterAddress(str):
                 docker_parameters.append(add_host_option)
         return docker_parameters
 
-def _make_parameters(master_ip, default_parameters, memory, arguments, override_parameters):
+def _make_parameters(master_ip,
+                     default_parameters,
+                     memory,
+                     arguments,
+                     override_parameters,
+                     run_local=False):
     """
     Makes a Spark Submit style job submission line.
 
@@ -68,20 +73,17 @@ def _make_parameters(master_ip, default_parameters, memory, arguments, override_
     :type override_parameters: list of string or None
     """
 
-    # python doesn't support logical xor?
-    # anywho, exactly one of memory or override_parameters must be defined
-    require((override_parameters is not None or memory is not None) and
-            (override_parameters is None or memory is None),
-            "Either the memory setting must be defined or you must provide Spark configuration parameters.")
-    
     # if the user hasn't provided overrides, set our defaults
     parameters = []
-    if memory is not None:
-        parameters = ["--master", "spark://%s:%s" % (master_ip, SPARK_MASTER_PORT),
-                      "--conf", "spark.driver.memory=%s" % memory,
-                      "--conf", "spark.executor.memory=%s" % memory,
-                      "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT))]
-    else:
+
+    if not run_local:
+        parameters.extend(["--master", "spark://%s:%s" % (master_ip, SPARK_MASTER_PORT),
+                           "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT))])
+    if memory:
+        parameters.extend(["--conf", "spark.driver.memory=%s" % memory,
+                           "--conf", "spark.executor.memory=%s" % memory])
+
+    if override_parameters:
         parameters.extend(override_parameters)
 
     # add the tool specific spark parameters
@@ -110,7 +112,7 @@ def _format_time(start_time, end_time):
     elapsed_minutes = int((elapsed_time - float(elapsed_hours * 3600.0)) / 60.0)
     elapsed_seconds = int((elapsed_time - float(elapsed_hours * 3600.0 + elapsed_minutes * 60.0)))
 
-    return ("%dh %dm %ds" % (elapsed_hours, elapsed_minutes, elapsed_hours))
+    return ("%dh %dm %ds" % (elapsed_hours, elapsed_minutes, elapsed_seconds))
 
 
 def _log_container_execution(job, container, start_time, end_time, parameters):
@@ -178,6 +180,7 @@ def call_adam(job, master_ip, arguments,
               container="quay.io/ucsc_cgl/adam:0.22.0--7add8b306862902b2bdd28a991e4e8dbc5292504",
               memory=None,
               override_parameters=None,
+              add_docker_parameters=None,
               run_local=False,
               native_adam_path=None):
     """
@@ -228,11 +231,15 @@ def call_adam(job, master_ip, arguments,
     # are we running adam via docker, or do we have a native path?
     if native_adam_path is None:
         docker_parameters = ['--log-driver', 'none', '--net=host']
+        if add_docker_parameters:
+            docker_parameters.extend(add_docker_parameters)
+
         parameters = _make_parameters(master_ip,
-                                                default_params,
-                                                memory,
-                                                arguments,
-                                                override_parameters)
+                                      default_params,
+                                      memory,
+                                      arguments,
+                                      override_parameters,
+                                      run_local=run_local)
 
         start_time = time.time()
         dockerCall(job=job,
