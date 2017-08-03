@@ -89,9 +89,9 @@ def _log_runtime(job, start, end, cmd):
 
     elapsed_time = end - start
     
-    seconds = int(elapsed_time) % 60
-    minutes = int(elapsed_time) / 60
     hours = int(elapsed_time) / (60 * 60)
+    minutes = int(elapsed_time - (60 * 60 * hours)) / 60
+    seconds = int(elapsed_time - (60 * 60 * hours) - (60 * minutes)) % 60
 
     job.fileStore.logToMaster("%s ran in %dh%dm%ds" % (cmd, hours, minutes, seconds))
 
