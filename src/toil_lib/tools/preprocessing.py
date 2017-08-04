@@ -355,7 +355,6 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- RealignerTargetCreator
-    start_time = time.time()
     parameters = ['-T', 'RealignerTargetCreator',
                   '-R', '/data/ref.fasta',
                   '-I', '/data/input.bam',
@@ -365,8 +364,6 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
                   '-known', '/data/mills.vcf',
                   '--downsampling_type', 'NONE',
                   '-o', '/data/sample.intervals']
-    end_time = time.time()
-    _log_runtime(job, start_time, end_time, "GATK3 RealignerTargetCreator")
 
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
@@ -383,7 +380,7 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
                parameters=parameters,
                dockerParameters=docker_parameters)
     end_time = time.time()
-    _log_runtime(job, start_time, end_time, "picard markduplicates")
+    _log_runtime(job, start_time, end_time, "GATK3 RTC")
 
     # Write to fileStore
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'sample.intervals'))
@@ -483,7 +480,6 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills, unsa
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- BaseRecalibrator
-    start_time = time.time()
     parameters = ['-T', 'BaseRecalibrator',
                   '-nct', str(int(job.cores)),
                   '-R', '/data/ref.fasta',
@@ -493,8 +489,6 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills, unsa
                   '-knownSites', '/data/dbsnp.vcf',
                   '-knownSites', '/data/mills.vcf',
                   '-o', '/data/recal_data.table']
-    end_time = time.time()
-    _log_runtime(job, start_time, end_time, "GATK3 BaseRecalibrator")
 
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
@@ -504,10 +498,13 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills, unsa
                          '--log-driver', 'none',
                          '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
                          '-v', '{}:/data'.format(work_dir)]
+    start_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
                dockerParameters=docker_parameters)
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 BaseRecalibrator")
 
     return job.fileStore.writeGlobalFile(os.path.join(work_dir, 'recal_data.table'))
 
@@ -539,15 +536,12 @@ def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai, unsafe=Fa
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     # Call: GATK -- PrintReads
-    start_time = time.time()
     parameters = ['-T', 'PrintReads',
                   '-nct', str(int(job.cores)),
                   '-R', '/data/ref.fasta',
                   '-I', '/data/input.bam',
                   '-BQSR', '/data/recal.table',
                   '-o', '/data/bqsr.bam']
-    end_time = time.time()
-    _log_runtime(job, start_time, end_time, "GATK3 BQSR PrintReads")
     
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
@@ -557,10 +551,13 @@ def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai, unsafe=Fa
                          '--log-driver', 'none',
                          '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
                          '-v', '{}:/data'.format(work_dir)]
+    start_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
                dockerParameters=docker_parameters)
+    end_time = time.time()
+    _log_runtime(job, start_time, end_time, "GATK3 BQSR PrintReads")
 
     output_bam = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'bqsr.bam'))
     output_bai = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'bqsr.bai'))
