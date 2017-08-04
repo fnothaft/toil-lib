@@ -230,7 +230,9 @@ def call_adam(job, master_ip, arguments,
 
     # are we running adam via docker, or do we have a native path?
     if native_adam_path is None:
-        docker_parameters = ['--log-driver', 'none', '--net=host']
+        docker_parameters = ['--log-driver', 'none',
+                             '--net=host',
+                             '-v', '/mnt/ephemeral:/tmp']
         if add_docker_parameters:
             docker_parameters.extend(add_docker_parameters)
 
