@@ -374,7 +374,7 @@ def run_realigner_target_creator(job, bam, bai, ref, ref_dict, fai, g1k, mills, 
                          '-e', 'JAVA_OPTS=-Djava.io.tmpdir=/data/ -Xmx{}'.format(job.memory),
                          '-v', '{}:/data'.format(work_dir)]
 
-    end_time = time.time()
+    start_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
                parameters=parameters,
