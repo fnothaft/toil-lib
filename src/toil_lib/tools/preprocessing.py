@@ -215,7 +215,7 @@ def run_sambamba_index(job, bam,
                parameters=command,
                tool='quay.io/biocontainers/sambamba:0.6.6--0')
     end_time = time.time()
-    _log_runtime(job, start_time, end_time, "sambamba index")
+    log_runtime(job, start_time, end_time, "sambamba index")
     
     bai_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'input.bam.bai'))
     if benchmarking:
@@ -243,20 +243,20 @@ def run_sambamba_view(job, sam,
                '-t', str(int(job.cores)),
                '-S', '/data/input.sam',
                '-f', 'bam',
-               '-o', '/data/input.bam']
+               '-o', '/data/output.bam']
 
     start_time = time.time()
     dockerCall(job=job, workDir=work_dir,
                parameters=command,
                tool='quay.io/biocontainers/sambamba:0.6.6--0')
     end_time = time.time()
-    _log_runtime(job, start_time, end_time, "sambamba view")
+    log_runtime(job, start_time, end_time, "sambamba view")
     
-    bam_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'input.bam'))
+    bam_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bam'))
     if benchmarking:
         return (bam_id, (end_time - start_time))
     else:
-        bam_id
+        return bam_id
 
 
 def run_sambamba_sort(job, bam,
@@ -467,7 +467,8 @@ def run_picard_sort(job, bam,
     if sort_by_name:
         command.append('SO=queryname')
     else:
-        command.append('SO=coordinate')
+        command.extend(['SO=coordinate',
+                        'CREATE_INDEX=true'])
 
     start_time = time.time()
     dockerCall(job=job, workDir=work_dir,
@@ -478,10 +479,18 @@ def run_picard_sort(job, bam,
     log_runtime(job, start_time, end_time, "Picard SortSam")
 
     bam_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bam'))
+    if not sort_by_name:
+        bai_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'output.bai'))
     if benchmarking:
-        return (bam_id, (end_time - start_time))
+        if sort_by_name:
+            return (bam_id, (end_time - start_time))
+        else:
+            return (bam_id, bai_id, (end_time - start_time))
     else:
-        return bam_id
+        if sort_by_name:
+            return bam_id
+        else:
+            return (bam_id, bai_id)
 
 
 def run_gatk_preprocessing(job, bam, bai, ref, ref_dict, fai, g1k, mills, dbsnp, realign=False, unsafe=False):
@@ -834,7 +843,9 @@ def run_base_recalibration(job, bam, bai, ref, ref_dict, fai, dbsnp, mills,
         return table_id
 
 
-def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai, unsafe=False):
+def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai,
+                             unsafe=False,
+                             benchmarking=False):
     """
     Creates BAM file with recalibrated base quality scores
 
@@ -869,8 +880,6 @@ def apply_bqsr_recalibration(job, table, bam, bai, ref, ref_dict, fai, unsafe=Fa
                   '-I', '/data/input.bam',
                   '-BQSR', '/data/recal.table',
                   '-o', '/data/bqsr.bam']
-    end_time = time.time()
-    log_runtime(job, start_time, end_time, "GATK3 BQSR PrintReads")
     
     if unsafe:
         parameters.extend(['-U', 'ALLOW_SEQ_DICT_INCOMPATIBILITY'])
