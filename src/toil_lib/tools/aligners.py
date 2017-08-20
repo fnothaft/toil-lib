@@ -143,11 +143,19 @@ def run_bwakit(job, config,
     realignment = False
     # If a fastq pair was provided
     if getattr(config, 'r1', None):
-        inputs['input.1.fq.gz'] = config.r1
-        samples.append('input.1.fq.gz')
+        if config.r1.endswith(".gz"):
+            inputs['input.1.fq.gz'] = config.r1
+            samples.append('input.1.fq.gz')
+        else:
+            inputs['input.1.fq'] = config.r1
+            samples.append('input.1.fq')
     if getattr(config, 'r2', None):
-        inputs['input.2.fq.gz'] = config.r2
-        samples.append('input.2.fq.gz')
+        if config.r2.endswith(".gz"):
+            inputs['input.2.fq.gz'] = config.r2
+            samples.append('input.2.fq.gz')
+        else:
+            inputs['input.2.fq'] = config.r2
+            samples.append('input.2.fq')
     if getattr(config, 'bam', None):
         inputs['input.bam'] = config.bam
         samples.append('input.bam')
@@ -206,8 +214,11 @@ def run_bwakit(job, config,
 
 def run_bowtie2(job,
                 read1,
+                ref,
                 index_ids,
                 read2=None,
+                read_group_id=None,
+                read_group_tags=None,
                 benchmarking=False):
     '''
     Runs bowtie2 for alignment.
@@ -227,20 +238,33 @@ def run_bowtie2(job,
     '''
     work_dir = job.fileStore.getLocalTempDir()
     file_ids = [ref, read1]
-    file_ids.extend(index_ids)
-    file_names = ['ref.fa', 'read1.fq',
-                  'ref.1.bt2', 'ref.2.bt2', 'ref.3.bt2', 'ref.4.bt2',
-                  'ref.rev.1.bt2', 'ref.rev.2.bt2']
+    file_ids.extend(index_ids.values())
+    file_names = ['ref.fa', 'read1.fq']
+    file_names.extend(index_ids.keys())
 
-    parameters = ['-x', '/data/ref',
-                  '-1', '/data/read1.fq',
-                  '-S', '/data/sample.sam',
-                  '-t', str(job.cores)]
+    parameters = ['-p', str(job.cores),
+                  '-x', '/data/ref',
+                  '-1', '/data/read1.fq']
 
     if read2:
         file_ids.append(read2)
         file_names.append('read2.fq')
         parameters.extend(['-2', '/data/read2.fq'])
+
+    parameters.extend(['-S', '/data/sample.sam'])
+
+    if read_group_id:
+        parameters.extend(['--rg-id', read_group_id])
+
+        for rg_tag in read_group_tags:
+            
+            parameters.extend(['--rg', rg_tag])
+
+    else:
+        
+        require(read_group_tags is None,
+                "Can't attach read group text without setting read group name")
+
     for file_store_id, name in zip(file_ids, file_names):
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
@@ -265,6 +289,7 @@ def run_snap(job,
              read2=None,
              sort=False,
              mark_duplicates=False,
+             read_group_line=None,
              benchmarking=False):
     '''
     Runs SNAP for alignment.
@@ -289,18 +314,15 @@ def run_snap(job,
     '''
     work_dir = job.fileStore.getLocalTempDir()
     file_ids = [read1]
-    file_ids.extend(
-    file_names = ['read1.fq',
-                  'Genome',
-                  'GenomeIndex',
-                  'GenomeIndexHash',
-                  'OverflowTable']
+    file_ids.extend(index_ids.values())
+    file_names = ['read1.fq']
+    file_names.extend(index_ids.keys())
 
     if read2:
         file_ids.append(read2)
         file_names.append('read2.fq')
 
-        parameters = ['paired'
+        parameters = ['paired',
                       '/data/',
                       '/data/read1.fq',
                       '/data/read2.fq',
@@ -308,7 +330,7 @@ def run_snap(job,
                       '-t', str(job.cores)]
     else:
 
-        parameters = ['single'
+        parameters = ['single',
                       '/data/',
                       '/data/read1.fq',
                       '-o', '-bam', '/data/sample.bam',
@@ -325,6 +347,10 @@ def run_snap(job,
 
         require(not mark_duplicates,
                 'Cannot run duplicate marking if sort is not enabled.')
+
+    if read_group_line:
+
+        parameters.extend(['-R', read_group_line])
         
     for file_store_id, name in zip(file_ids, file_names):
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))

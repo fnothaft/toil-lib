@@ -82,3 +82,47 @@ def run_snap_index(job,
         ids[output] = (job.fileStore.writeGlobalFile(os.path.join(work_dir, output)))
     job.fileStore.logToMaster('Created SNAP index')
     return ids
+
+
+def run_soap3_index(job,
+                    ref,
+                    bwa_indices):
+    '''
+    '''
+    work_dir = job.fileStore.getLocalTempDir()
+    job.fileStore.readGlobalFile(ref, os.path.join(work_dir, 'ref.fa'))
+    for index in ['amb', 'ann', 'bwt', 'pac', 'sa']:
+        job.fileStore.readGlobalFile(bwa_indices[index],
+                                     os.path.join(work_dir, 'ref.fa.%s' % index))
+
+    dockerCall(job=job,
+               workDir=work_dir,
+               parameters=['/opt/cgl-docker-lib/SOAP3-dp/soap3-dp-builder',
+                           '/data/ref.fa'],
+               tool='quay.io/ucsc_cgl/soap3-dp')
+    dockerCall(job=job,
+               workDir=work_dir,
+               parameters=['/opt/cgl-docker-lib/SOAP3-dp/BGS-Build',
+                           '/data/ref.fa.index'],
+               tool='quay.io/ucsc_cgl/soap3-dp')
+
+    index_files = ['ref.fa.index.amb',
+                   'ref.fa.index.ann',
+                   'ref.fa.index.bwt',
+                   'ref.fa.index.fmv',
+                   'ref.fa.index.fmv.gpu',
+                   'ref.fa.index.lkt',
+                   'ref.fa.index.pac',
+                   'ref.fa.index.rev.bwt',
+                   'ref.fa.index.rev.fmv',
+                   'ref.fa.index.rev.fmv.gpu',
+                   'ref.fa.index.rev.lkt',
+                   'ref.fa.index.rev.pac',
+                   'ref.fa.index.sa',
+                   'ref.fa.index.tra']
+    job.fileStore.logToMaster('Created SOAP3-dp index')
+    indices = {}
+    for index in index_files:
+        indices[index] = job.fileStore.writeGlobalFile(os.path.join(work_dir,
+                                                                    index))
+    return indices
