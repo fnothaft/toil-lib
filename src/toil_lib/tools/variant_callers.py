@@ -8,7 +8,9 @@ from toil_lib.tools import log_runtime
 
 _log = logging.getLogger(__name__)
 
-def run_freebayes(job, ref, ref_fai, bam, bai, chunksize=None):
+def run_freebayes(job, ref, ref_fai, bam, bai,
+                  chunksize=None,
+                  benchmarking=False):
     '''
     Calls FreeBayes to call variants.
 
@@ -42,15 +44,20 @@ def run_freebayes(job, ref, ref_fai, bam, bai, chunksize=None):
                              '--log-driver', 'none',
                              '-v', '{}:/data'.format(work_dir),
                              '--entrypoint=/opt/cgl-docker-lib/freebayes/scripts/fasta_generate_regions.py']
+
+        if not os.path.exists(work_dir):
+            os.mkdir(work_dir)
+
         start_time = time.time()
         dockerCall(job,
                    workDir=work_dir,
                    dockerParameters=docker_parameters,
                    parameters=['/data/ref.fa.fai', str(chunksize)],
                    tool='quay.io/ucsc_cgl/freebayes',
-                   outfile=open(os.path.join(work_dir, 'regions')))
+                   outfile=open(os.path.join(work_dir, 'regions'), 'w'))
         end_time = time.time()
         log_runtime(job, start_time, end_time, 'fasta_generate_regions')
+        elapsed_time = (end_time - start_time)
 
         docker_parameters = ['--rm',
                              '--log-driver', 'none',
@@ -65,12 +72,16 @@ def run_freebayes(job, ref, ref_fai, bam, bai, chunksize=None):
                                '-f', '/data/ref.fa',
                                '/data/sample.bam'],
                    tool='quay.io/ucsc_cgl/freebayes',
-                   outfile=open(output_vcf))
+                   outfile=open(output_vcf, 'w'))
         end_time = time.time()
         log_runtime(job, start_time, end_time, 'FreeBayes Parallel')
+        elapsed_time += (end_time - start_time)
                    
     else:
         _log.info('Running FreeBayes single threaded.')
+
+        if not os.path.exists(work_dir):
+            os.mkdir(work_dir)
 
         start_time = time.time()
         dockerCall(job=job,
@@ -78,14 +89,21 @@ def run_freebayes(job, ref, ref_fai, bam, bai, chunksize=None):
                    parameters=['-f', '/data/ref.fa',
                                '/data/sample.bam'],
                    tool='quay.io/ucsc_cgl/freebayes',
-                   outfile=open(output_vcf))
+                   outfile=open(output_vcf, 'w'))
         end_time = time.time()
         log_runtime(job, start_time, end_time, 'FreeBayes')
+        elapsed_time = (end_time - start_time)
 
-    return job.fileStore.writeGlobalFile(output_vcf)
+    vcf_id = job.fileStore.writeGlobalFile(output_vcf)
+    if benchmarking:
+        return (vcf_id, elapsed_time)
+    else:
+        return vcf_id
 
 
-def run_platypus(job, ref, ref_fai, bam, bai, assemble=False):
+def run_platypus(job, ref, ref_fai, bam, bai,
+                 assemble=False,
+                 benchmarking=False):
     '''
     Runs Platypus to call variants.
 
@@ -105,15 +123,15 @@ def run_platypus(job, ref, ref_fai, bam, bai, assemble=False):
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
     parameters = ['callVariants',
-                  '--refFile', '/data/ref.fa',
-                  '--outputFile', '/data/sample.vcf',
-                  '--bamFiles', '/data/sample.bam']
+                  '--refFile=/data/ref.fa',
+                  '--output=/data/sample.vcf',
+                  '--bamFiles=/data/sample.bam']
 
     if job.cores > 1:
         parameters.extend(['--nCPU', str(job.cores)])
 
     if assemble:
-        parameters.append('--assemble')
+        parameters.append('--assemble=1')
 
     start_time = time.time()
     dockerCall(job=job,
@@ -136,7 +154,7 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
 
     :param JobFunctionWrappingJob job: passed automatically by Toil.
     :param str ref: The reference FASTA FileStoreID.
-    :param str genome_index: The FileStoreID of the SOAP3-dp genome index.
+    :param str genome_index: The FileStoreIDs of the SOAP3-dp genome index files.
     :param str bam: The FileStoreID of the BAM to call.
     :param str dbsnp: The FileStoreID of the dbSNP VCF for filtration.
     :param str sample_name: The name of the sample being called.
@@ -144,8 +162,10 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
       FileStoreID.
     '''
     work_dir = job.fileStore.getLocalTempDir()
-    file_ids = [ref, genome_index, bam, dbsnp]
-    file_names = ['ref.fa', 'ref.fa.index', 'sample.bam', 'dbsnp.vcf']
+    file_ids = [ref, bam, dbsnp]
+    file_names = ['ref.fa', 'sample.bam', 'dbsnp.vcf']
+    file_ids.extend(genome_index.values())
+    file_names.extend(genome_index.keys())
     for file_store_id, name in zip(file_ids, file_names):
         job.fileStore.readGlobalFile(file_store_id, os.path.join(work_dir, name))
 
@@ -172,6 +192,9 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
     log_runtime(job, start_time, end_time, '16gt snapshotSnpcaller')
     snp_caller_time = (end_time - start_time)
 
+    if not os.path.exists(work_dir):
+        os.mkdir(work_dir)
+
     start_time = time.time()
     dockerCall(job=job,
                workDir=work_dir,
@@ -180,7 +203,7 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
                            sample_name,
                            '/data/ref.fa'],
                tool='quay.io/ucsc_cgl/16gt',
-               outfile=open(os.path.join(work_dir, 'sample.vcf')))
+               outfile=open(os.path.join(work_dir, 'sample.vcf'), 'w'))
     end_time = time.time()
     log_runtime(job, start_time, end_time, '16gt txt2vcf')
     text_vcf_time = (end_time - start_time)
@@ -192,7 +215,7 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
                            '/data/sample.vcf',
                            '/data/dbsnp.vcf'],
                tool='quay.io/ucsc_cgl/16gt',
-               outfile=open(os.path.join(work_dir, 'sample.filtered.vcf')))
+               outfile=open(os.path.join(work_dir, 'sample.filtered.vcf'), 'w'))
     end_time = time.time()
     log_runtime(job, start_time, end_time, '16gt filterVCF')
     filter_vcf_time = (end_time - start_time)
@@ -257,7 +280,8 @@ def run_strelka(job, ref, ref_fai, bam, bai,
     end_time = time.time()
     log_runtime(job, start_time, end_time, 'Strelka')
 
-    vcf_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'variants.vcf.gz'))
+    vcf_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
+                                                        'results/variants/variants.vcf.gz'))
     if benchmarking:
         return (vcf_id, (end_time - start_time))
     else:
@@ -303,9 +327,10 @@ def run_manta(job, ref, ref_fai, bam, bai, benchmarking=False):
     end_time = time.time()
     log_runtime(job, start_time, end_time, 'Manta')
 
-    sv_id = job.fileStore.writeGlobalFile(os.path.join(work_dir, 'diploidSV.vcf.gz'))
+    sv_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
+                                                       'results/variants/diploidSV.vcf.gz'))
     indel_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
-                                                          'candidateSmallIndels.vcf.gz'))
+                                                          'results/variants/candidateSmallIndels.vcf.gz'))
     if benchmarking:
         return (sv_id, indel_id, (end_time - start_time))
     else:
@@ -380,7 +405,8 @@ def run_bcftools_call(job, vcf_gz, benchmarking=False):
 
 def run_gatk3_haplotype_caller(job, ref, ref_fai, ref_dict, bam, bai,
                                emit_threshold=10.0,
-                               call_threshold=30.0):
+                               call_threshold=30.0,
+                               benchmarking=False):
     '''
     Runs the GATK3's HaplotypeCaller.
 
@@ -418,7 +444,7 @@ def run_gatk3_haplotype_caller(job, ref, ref_fai, ref_dict, bam, bai,
     start_time = time.time()
     dockerCall(job=job, tool='quay.io/ucsc_cgl/gatk:3.5--dba6dae49156168a909c43330350c6161dc7ecc2',
                workDir=work_dir,
-               parameters=parameters,
+               parameters=command,
                dockerParameters=docker_parameters)
     end_time = time.time()
     log_runtime(job, start_time, end_time, "GATK3 HaplotypeCaller")
