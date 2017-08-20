@@ -271,7 +271,7 @@ def call_cannoli(job, master_ip, arguments,
                  container="quay.io/ucsc_cgl/cannoli:0a9321a382fdfad1411cb308a0de1566bf4c8bb4--036b9354dbd46e62c4d326b4308c4786fc966d6a",
                  memory=None,
                  override_parameters=None,
-                 run_local=False
+                 run_local=False,
                  benchmarking=False):
     """
     Invokes the Cannoli container. Find Cannoli at https://github.com/bigdatagenomics/cannoli.
