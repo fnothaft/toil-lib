@@ -67,12 +67,15 @@ def run_bowtie2_index(job,
 
     
 def run_snap_index(job,
-                   ref_id):
+                   ref_id,
+                   break_spaces=True):
     '''
     '''
     work_dir = job.fileStore.getLocalTempDir()
     job.fileStore.readGlobalFile(ref_id, os.path.join(work_dir, 'ref.fa'))
     command = ['index', '/data/ref.fa', '/data/']
+    if break_spaces:
+        command.append('-bSpace')
     dockerCall(job=job,
                workDir=work_dir,
                parameters=command,
