@@ -4,6 +4,7 @@ import time
 
 from toil.lib.docker import dockerCall
 
+from toil_lib import require
 from toil_lib.tools import log_runtime
 
 _log = logging.getLogger(__name__)
@@ -229,6 +230,7 @@ def run_16gt(job, ref, genome_index, bam, dbsnp, sample_name, benchmarking=False
         
 def run_strelka(job, ref, ref_fai, bam, bai,
                 candidate_indels=None,
+                candidate_indels_tbi=None,
                 benchmarking=False):
     '''
     Runs Strelka's germline single sample caller.
@@ -252,9 +254,13 @@ def run_strelka(job, ref, ref_fai, bam, bai,
     file_names = ['ref.fa', 'ref.fa.fai', 'sample.bam', 'sample.bam.bai']
 
     if candidate_indels:
+        require(candidate_indels_tbi is not None,
+                'If candidate INDELs are provided to Strelka, tabix index must be provided')
         _log.info('Candidate indels from Manta were provided for Strelka.')
         file_ids.append(candidate_indels)
         file_names.append('candidateSmallIndels.vcf.gz')
+        file_ids.append(candidate_indels_tbi)
+        file_names.append('candidateSmallIndels.vcf.gz.tbi')
         generate_parameters.extend(['--indelCandidates', '/data/candidateSmallIndels.vcf.gz'])
     else:
         _log.info('No candidate indels provided.')
@@ -329,12 +335,16 @@ def run_manta(job, ref, ref_fai, bam, bai, benchmarking=False):
 
     sv_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
                                                        'results/variants/diploidSV.vcf.gz'))
+    sv_tbi_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
+                                                           'results/variants/diploidSV.vcf.gz.tbi'))
     indel_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
                                                           'results/variants/candidateSmallIndels.vcf.gz'))
+    indel_tbi_id = job.fileStore.writeGlobalFile(os.path.join(work_dir,
+                                                              'results/variants/candidateSmallIndels.vcf.gz.tbi'))
     if benchmarking:
-        return (sv_id, indel_id, (end_time - start_time))
+        return (sv_id, sv_tbi_id, indel_id, indel_tbi_id, (end_time - start_time))
     else:
-        return (sv_id, indel_id)
+        return (sv_id, sv_tbi_id, indel_id, indel_tbi_id)
 
 
 def run_samtools_mpileup(job, ref, ref_fai, bam, bai, benchmarking=False):
@@ -360,7 +370,7 @@ def run_samtools_mpileup(job, ref, ref_fai, bam, bai, benchmarking=False):
                workDir=work_dir,
                parameters=['mpileup',
                            '-f', '/data/ref.fa',
-                           '-o', '/data/sample.vcf.gz',
+                           '-o', '/data/sample.vcf.gz', '-v',
                            '/data/sample.bam'],
                tool='quay.io/ucsc_cgl/samtools')
     end_time = time.time()
@@ -373,7 +383,7 @@ def run_samtools_mpileup(job, ref, ref_fai, bam, bai, benchmarking=False):
         return vcf_id
 
 
-def run_bcftools_call(job, vcf_gz, benchmarking=False):
+def run_bcftools_call(job, vcf_gz, benchmarking=False, multiallelic=True):
     '''
     Runs the bcftools call command.
     
@@ -385,13 +395,20 @@ def run_bcftools_call(job, vcf_gz, benchmarking=False):
     work_dir = job.fileStore.getLocalTempDir()
     job.fileStore.readGlobalFile(vcf_gz, os.path.join(work_dir, 'sample.vcf.gz'))
 
+    parameters = ['call',
+                  '-o', '/data/sample.calls.vcf.gz',
+                  '--threads', str(job.cores),
+                  '/data/sample.vcf.gz']
+
+    if multiallelic:
+        parameters.append('-m')
+    else:
+        parameters.append('-c')
+
     start_time = time.time()
     dockerCall(job=job,
                workDir=work_dir,
-               parameters=['call',
-                           '-o', '/data/sample.calls.vcf.gz',
-                           '--threads', str(job.cores),
-                           '/data/sample.vcf.gz'],
+               parameters=parameters,
                tool='quay.io/ucsc_cgl/bcftools')
     end_time = time.time()
     log_runtime(job, start_time, end_time, 'bcftools call')
@@ -426,7 +443,7 @@ def run_gatk3_haplotype_caller(job, ref, ref_fai, ref_dict, bam, bai,
 
     command = ['-T', 'HaplotypeCaller',
                '-nct', str(job.cores),
-               '-R', 'genome.fa',
+               '-R', 'ref.fa',
                '-I', 'input.bam',
                '-o', 'output.g.vcf',
                '-stand_call_conf', str(call_threshold),

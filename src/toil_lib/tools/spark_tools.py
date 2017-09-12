@@ -80,10 +80,13 @@ def _make_parameters(master_ip, default_parameters, memory, arguments, override_
     if memory is not None:
         parameters = ["--master", "spark://%s:%s" % (master_ip, SPARK_MASTER_PORT),
                       "--conf", "spark.driver.memory=%sg" % memory,
-                      "--conf", "spark.executor.memory=%sg" % memory,
-                      "--conf", ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT))]
+                      "--conf", "spark.executor.memory=%sg" % memory]
+
+        if master_ip:
+            parameters.extend(["--conf",
+                               ("spark.hadoop.fs.default.name=hdfs://%s:%s" % (master_ip, HDFS_MASTER_PORT))])
     else:
-        parameters.extend(override_parameters)
+        parameters = override_parameters
 
     # add the tool specific spark parameters
     parameters.extend(default_parameters)
@@ -142,7 +145,9 @@ def call_adam(job, master_ip, arguments,
               override_parameters=None,
               run_local=False,
               native_adam_path=None,
-              benchmarking=False):
+              add_docker_parameters=None,
+              benchmarking=False,
+              use_spark_bam=False):
     """
     Invokes the ADAM container. Find ADAM at https://github.com/bigdatagenomics/adam.
 
@@ -165,7 +170,8 @@ def call_adam(job, master_ip, arguments,
     :type run_local: boolean
     """
     if run_local:
-        master = ["--master", "local[*]"]
+        master = ["--master", "local[*]",
+                  "--conf", "fs.local.block.size=67108864"]
     else:
         master = ["--master",
                   ("spark://%s:%s" % (master_ip, SPARK_MASTER_PORT)),
@@ -186,11 +192,19 @@ def call_adam(job, master_ip, arguments,
             # caused by heavy gc load
             "--conf", "spark.storage.memoryFraction=0.3",
             "--conf", "spark.storage.unrollFraction=0.1",
-            "--conf", "spark.network.timeout=300s"])
+            "--conf", "spark.network.timeout=300s",
+            "--conf", "spark.kryoserializer.buffer.max=2047m"])
+
+    if use_spark_bam:
+        default_params.extend(["--conf", "spark.hadoop.org.bdgenomics.adam.rdd.ADAMContext.USE_SPARK_BAM=true"])
 
     # are we running adam via docker, or do we have a native path?
     if native_adam_path is None:
-        docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+        docker_parameters = ['--log-driver', 'none']
+        if master_ip:
+            docker_parameters.extend(master_ip.docker_parameters(["--net=host"]))
+        if add_docker_parameters:
+            docker_parameters.extend(add_docker_parameters)
         start_time = time.time()
         dockerCall(job=job,
                    tool=container,
@@ -217,7 +231,8 @@ def call_avocado(job, master_ip, arguments,
                  memory=None,
                  override_parameters=None,
                  run_local=False,
-                 benchmarking=False):
+                 benchmarking=False,
+                 add_docker_parameters=False):
     """
     Invokes the Avocado container. Find Avocado at https://github.com/bigdatagenomics/avocado.
 
@@ -238,7 +253,8 @@ def call_avocado(job, master_ip, arguments,
     :type run_local: boolean
     """
     if run_local:
-        master = ["--master", "local[*]"]
+        master = ["--master", "local[*]",
+                  "--conf", "fs.local.block.size=67108864"]
     else:
         master = ["--master",
                   ("spark://%s:%s" % (master_ip, SPARK_MASTER_PORT)),
@@ -247,10 +263,15 @@ def call_avocado(job, master_ip, arguments,
     default_params = (master + [
             # set max result size to unlimited, see #177
             "--conf", "spark.driver.maxResultSize=0",
-            "--conf", "spark.kryoserializer.buffer.max=2047m"
+            "--conf", "spark.kryoserializer.buffer.max=2047m",
             ])
 
-    docker_parameters = ['--log-driver', 'none', master_ip.docker_parameters(["--net=host"])]
+    docker_parameters = ['--log-driver', 'none']
+    if master_ip:
+        docker_parameters.extend(master_ip.docker_parameters(["--net=host"]))
+    if add_docker_parameters:
+        docker_parameters.extend(add_docker_parameters)
+
     start_time = time.time()
     dockerCall(job=job,
                tool=container,
@@ -293,7 +314,8 @@ def call_cannoli(job, master_ip, arguments,
     :type run_local: boolean
     """
     if run_local:
-        master = ["--master", "local[*]"]
+        master = ["--master", "local[*]",
+                  "--conf", "fs.local.block.size=67108864"]
     else:
         master = ["--master",
                   ("spark://%s:%s" % (master_ip, SPARK_MASTER_PORT)),
